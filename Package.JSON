@@ -1,0 +1,21 @@
+{
+    "name": "whatsapp-group-broadcaster",
+    "version": "1.0.0",
+    "description": "Sends predefined messages to a list of WhatsApp groups on a randomized schedule.",
+    "main": "index.js",
+    "scripts": {
+        "test": "echo \"Error: no test specified\" && exit 1",
+        "start": "node index.js",
+        "list-groups": "node list-groups.js"
+    },
+    "keywords": [],
+    "author": "",
+    "license": "ISC",
+    "dependencies": {
+        "@whiskeysockets/baileys": "^6.7.24",
+        "dotenv": "^17.4.2",
+        "pino": "^9.4.0",
+        "qrcode-terminal": "^0.12.0"
+    },
+    "type": "module"
+}
