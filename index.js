@@ -13,6 +13,9 @@ import {
     MAX_RANDOM_EXTRA_MINUTES,
     MIN_DELAY_BETWEEN_GROUPS_SECONDS,
     MAX_DELAY_BETWEEN_GROUPS_SECONDS,
+    DAYTIME_START_HOUR,
+    DAYTIME_END_HOUR,
+    TZ,
     LOG_LEVEL,
 } from "./config.js";
 
@@ -36,6 +39,27 @@ function scheduleReconnect() {
     setTimeout(start, delay);
 }
 
+function randomBetween(min, max) {
+    return Math.floor(Math.random() * (max - min + 1)) + min;
+}
+
+// ── Daytime gating ───────────────────────────────────────────────────────
+function isDaytime(date = new Date()) {
+    const hour = date.getHours(); // local time — respects TZ env var
+    return hour >= DAYTIME_START_HOUR && hour < DAYTIME_END_HOUR;
+}
+
+// Next DAYTIME_START_HOUR from `from`, a few random minutes/seconds off
+// the exact hour so every deferred round doesn't fire at :00:00.
+function nextDaytimeStart(from = new Date()) {
+    const target = new Date(from);
+    target.setHours(DAYTIME_START_HOUR, randomBetween(0, 14), randomBetween(0, 59), 0);
+    if (target <= from) {
+        target.setDate(target.getDate() + 1);
+    }
+    return target;
+}
+
 // ── Send-round scheduling ────────────────────────────────────────────────
 // One tracked timer handle for the whole process. Every (re)schedule clears
 // whatever timer was already pending first, so a reconnect can never leave
@@ -56,10 +80,6 @@ function sleep(ms) {
 
 function pickMessage() {
     return MESSAGES[Math.floor(Math.random() * MESSAGES.length)];
-}
-
-function randomBetween(min, max) {
-    return Math.floor(Math.random() * (max - min + 1)) + min;
 }
 
 function msUntilNextRound() {
@@ -95,10 +115,30 @@ async function sendRound(sock) {
 
 function scheduleNextRound(sock) {
     clearScheduledRound();
-    const delay = msUntilNextRound();
-    console.log(`Next round in ${Math.round(delay / 60000)} minutes.`);
+
+    const now = new Date();
+    const rawTarget = new Date(now.getTime() + msUntilNextRound());
+
+    // If the normal ~3h+jitter cadence would land outside the daytime
+    // window, push to the next window instead of sending at night.
+    const target = isDaytime(rawTarget) ? rawTarget : nextDaytimeStart(now);
+    const delay = target.getTime() - now.getTime();
+
+    console.log(
+        `Next round at ${target.toLocaleString()} (in ${Math.round(delay / 60000)} minutes).`
+    );
+
     nextRoundTimeout = setTimeout(async () => {
         nextRoundTimeout = null;
+
+        // Defensive re-check: covers event-loop stalls, clock changes, or
+        // the process being suspended/resumed since this was scheduled.
+        if (!isDaytime()) {
+            console.log("Woke up outside daytime hours — deferring instead of sending.");
+            scheduleNextRound(sock);
+            return;
+        }
+
         await sendRound(sock);
         scheduleNextRound(sock);
     }, delay);

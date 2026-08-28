@@ -18,9 +18,31 @@ export const GROUP_IDS = (process.env.GROUP_IDS ?? "")
 // ── Timing ───────────────────────────────────────────────────────────────
 /* Base gap between rounds, in hours, plus a random extra amount added on top each time so the schedule isn't perfectly predictable. */
 export const BASE_INTERVAL_HOURS = 3;
-export const MAX_RANDOM_EXTRA_MINUTES = 20; // random extra on top of the base gap
+export const MAX_RANDOM_EXTRA_MINUTES = 60; // random extra on top of the base gap
 
 // Small randomized pause between sending to each individual group in a
 // round, in seconds, so 40-50 messages don't fire in the same instant.
 export const MIN_DELAY_BETWEEN_GROUPS_SECONDS = 4;
 export const MAX_DELAY_BETWEEN_GROUPS_SECONDS = 9;
+
+// ── Daytime-only sending ─────────────────────────────────────────────────
+// Local hours (24h, 0-23) that rounds are allowed to fire in. A round due
+// outside this window gets pushed to the next day's DAYTIME_START_HOUR
+// instead of firing — a broadcast landing at 3am is one of the more
+// obvious "this is a bot" signals. Uses the process's local timezone, so
+// set TZ in .env (e.g. TZ=Asia/Karachi) if the VPS defaults to UTC.
+export const DAYTIME_START_HOUR = Number(process.env.DAYTIME_START_HOUR ?? 9);
+export const DAYTIME_END_HOUR = Number(process.env.DAYTIME_END_HOUR ?? 23);
+
+if (
+  !Number.isInteger(DAYTIME_START_HOUR) ||
+  !Number.isInteger(DAYTIME_END_HOUR) ||
+  DAYTIME_START_HOUR < 0 ||
+  DAYTIME_END_HOUR > 24 ||
+  DAYTIME_START_HOUR >= DAYTIME_END_HOUR
+) {
+  throw new Error(
+    `Invalid daytime window: DAYTIME_START_HOUR=${DAYTIME_START_HOUR}, DAYTIME_END_HOUR=${DAYTIME_END_HOUR}. ` +
+    `Need 0 <= start < end <= 24 (overnight windows like 22-6 aren't supported).`
+  );
+}
