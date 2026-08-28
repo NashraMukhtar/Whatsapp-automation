@@ -18,7 +18,7 @@ export const GROUP_IDS = (process.env.GROUP_IDS ?? "")
 // ── Timing ───────────────────────────────────────────────────────────────
 /* Base gap between rounds, in hours, plus a random extra amount added on top each time so the schedule isn't perfectly predictable. */
 export const BASE_INTERVAL_HOURS = 3;
-// export const BASE_INTERVAL_MINUTES = 3;
+// export const BASE_INTERVAL_MINUTES = 2;
 export const MAX_RANDOM_EXTRA_MINUTES = 60; // random extra on top of the base gap
 // export const MAX_RANDOM_EXTRA_SECONDS = 60; // random extra on top of the base gap
 

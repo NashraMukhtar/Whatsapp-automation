@@ -23,6 +23,10 @@ import {
     GROUP_BATCH_SIZE,
 } from "./config.js";
 
+process.on("unhandledRejection", (err) => {
+    console.error("Unhandled rejection:", err);
+});
+
 // ── Reconnect backoff ────────────────────────────────────────────────────
 // Waits longer after each consecutive failed connection attempt (capped),
 // and resets to the base delay once a connection actually opens. Retrying
@@ -111,6 +115,10 @@ async function sendRound(sock) {
         console.log("GROUP_IDS is empty — run `npm run list-groups` and fill in config.js first.");
         return;
     }
+    if (MESSAGES.length === 0) {
+        console.log("MESSAGES is empty — check MESSAGES in .env");
+        return;
+    }
 
     const message = pickMessage();
     const batches = chunkArray(GROUP_IDS, GROUP_BATCH_SIZE);
@@ -171,16 +179,22 @@ function scheduleNextRound(sock) {
     nextRoundTimeout = setTimeout(async () => {
         nextRoundTimeout = null;
 
-        // Defensive re-check: covers event-loop stalls, clock changes, or
-        // the process being suspended/resumed since this was scheduled.
-        if (!isDaytime()) {
-            console.log("Woke up outside daytime hours — deferring instead of sending.");
+        try {
+            // Defensive re-check: covers event-loop stalls, clock changes, or
+            // the process being suspended/resumed since this was scheduled.
+            if (!isDaytime()) {
+                console.log("Woke up outside daytime hours — deferring instead of sending.");
+                return;
+            }
+            await sendRound(sock);
+        } catch (err) {
+            // Anything unexpected in sendRound (not just an individual failed
+            // send, which is already handled inside it) lands here instead of
+            // killing the schedule outright.
+            console.error(`Round failed unexpectedly, skipping to next round: ${err.message}`);
+        } finally {
             scheduleNextRound(sock);
-            return;
         }
-
-        await sendRound(sock);
-        scheduleNextRound(sock);
     }, delay);
 }
 
