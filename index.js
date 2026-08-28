@@ -10,13 +10,17 @@ import {
     MESSAGES,
     GROUP_IDS,
     BASE_INTERVAL_HOURS,
+    // BASE_INTERVAL_MINUTES,
     MAX_RANDOM_EXTRA_MINUTES,
+    // MAX_RANDOM_EXTRA_SECONDS,
     MIN_DELAY_BETWEEN_GROUPS_SECONDS,
     MAX_DELAY_BETWEEN_GROUPS_SECONDS,
+    MIN_DELAY_BETWEEN_BATCHES_MINUTES,
+    MAX_DELAY_BETWEEN_BATCHES_MINUTES,
     DAYTIME_START_HOUR,
     DAYTIME_END_HOUR,
-    TZ,
     LOG_LEVEL,
+    GROUP_BATCH_SIZE,
 } from "./config.js";
 
 // ── Reconnect backoff ────────────────────────────────────────────────────
@@ -41,6 +45,16 @@ function scheduleReconnect() {
 
 function randomBetween(min, max) {
     return Math.floor(Math.random() * (max - min + 1)) + min;
+}
+
+// Splits an array into chunks of `size`. The final chunk holds whatever's
+// left over and can be smaller than `size`
+function chunkArray(arr, size) {
+    const chunks = [];
+    for (let i = 0; i < arr.length; i += size) {
+        chunks.push(arr.slice(i, i + size));
+    }
+    return chunks;
 }
 
 // ── Daytime gating ───────────────────────────────────────────────────────
@@ -88,6 +102,10 @@ function msUntilNextRound() {
     return baseMs + extraMs;
 }
 
+// Sends one round to every group, in batches of GROUP_BATCH_SIZE: a short
+// delay between groups within a batch, a much longer pause between
+// batches. The last batch takes whatever's left over, however many that
+// is — nothing gets skipped just because it's not a full batch.
 async function sendRound(sock) {
     if (GROUP_IDS.length === 0) {
         console.log("GROUP_IDS is empty — run `npm run list-groups` and fill in config.js first.");
@@ -95,21 +113,43 @@ async function sendRound(sock) {
     }
 
     const message = pickMessage();
-    console.log(`\n[${new Date().toISOString()}] Sending to ${GROUP_IDS.length} groups`);
+    const batches = chunkArray(GROUP_IDS, GROUP_BATCH_SIZE);
+    console.log(
+        `\n[${new Date().toISOString()}] Sending to ${GROUP_IDS.length} groups in ${batches.length} batches`
+    );
 
-    for (const groupId of GROUP_IDS) {
-        try {
-            await sock.sendMessage(groupId, { text: message });
-            console.log(`  sent -> ${groupId}`);
-        } catch (err) {
-            console.error(`  failed -> ${groupId}: ${err.message}`);
+    for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
+        const batch = batches[batchIndex];
+        console.log(`  -- batch ${batchIndex + 1}/${batches.length} (${batch.length} groups) --`);
+
+        for (let i = 0; i < batch.length; i++) {
+            const groupId = batch[i];
+            try {
+                await sock.sendMessage(groupId, { text: message });
+                console.log(`  sent -> ${groupId}`);
+            } catch (err) {
+                console.error(`  failed -> ${groupId}: ${err.message}`);
+            }
+
+            const isLastInBatch = i === batch.length - 1;
+            if (!isLastInBatch) {
+                const delaySeconds = randomBetween(
+                    MIN_DELAY_BETWEEN_GROUPS_SECONDS,
+                    MAX_DELAY_BETWEEN_GROUPS_SECONDS
+                );
+                await sleep(delaySeconds * 1000);
+            }
         }
 
-        const delaySeconds = randomBetween(
-            MIN_DELAY_BETWEEN_GROUPS_SECONDS,
-            MAX_DELAY_BETWEEN_GROUPS_SECONDS
-        );
-        await sleep(delaySeconds * 1000);
+        const isLastBatch = batchIndex === batches.length - 1;
+        if (!isLastBatch) {
+            const delayMinutes = randomBetween(
+                MIN_DELAY_BETWEEN_BATCHES_MINUTES,
+                MAX_DELAY_BETWEEN_BATCHES_MINUTES
+            );
+            console.log(`  batch done — waiting ${delayMinutes}m before next batch`);
+            await sleep(delayMinutes * 60 * 1000);
+        }
     }
 }
 
